@@ -6,6 +6,7 @@ import re
 from anyascii import anyascii
 
 from TTS.tts.utils.text.chinese_mandarin.numbers import replace_numbers_to_characters_in_text
+from TTS.tts.utils.text.tailo.cleaners import tailo_basic_cleaner  # noqa: F401  (resolvable by config name)
 
 from .english.abbreviations import abbreviations_en
 from .english.number_norm import normalize_numbers as en_normalize_numbers

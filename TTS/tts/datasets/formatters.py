@@ -653,3 +653,46 @@ def bel_tts_formatter(root_path, meta_file, **kwargs):  # pylint: disable=unused
             text = cols[1]
             items.append({"text": text, "audio_file": wav_file, "speaker_name": speaker_name, "root_path": root_path})
     return items
+
+
+def common_voice_taigi(root_path, meta_file, ignored_speakers=None):
+    """Formatter for the Tâi-lô-prepared Common Voice nan-tw corpus.
+
+    Reads rows of the form ``clips/xxx.mp3|tailo_text|speaker_id`` (no header)
+    produced by ``recipes/taigi/data/prepare_common_voice.py``. The
+    ``meta_file`` may be relative to ``root_path`` (typical) or absolute.
+
+    Speaker names are formatted as ``taigi_<int_id>`` to match the
+    convention used by the other multi-speaker formatters here.
+    """
+    meta_path = meta_file if os.path.isabs(meta_file) else os.path.join(root_path, meta_file)
+    items = []
+    not_found = 0
+    with open(meta_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            cols = line.split("|")
+            if len(cols) < 3:
+                continue
+            audio_rel, text, speaker_id = cols[0], cols[1], cols[2]
+            speaker_name = f"taigi_{speaker_id}"
+            if isinstance(ignored_speakers, (list, set, tuple)) and speaker_name in ignored_speakers:
+                continue
+            audio_path = os.path.join(root_path, audio_rel)
+            if not os.path.exists(audio_path):
+                not_found += 1
+                continue
+            items.append(
+                {
+                    "text": text,
+                    "audio_file": audio_path,
+                    "speaker_name": speaker_name,
+                    "language": "nan-tw",
+                    "root_path": root_path,
+                }
+            )
+    if not_found:
+        print(f" | > [!] {not_found} audio files not found under {root_path}")
+    return items
