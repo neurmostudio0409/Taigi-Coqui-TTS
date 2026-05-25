@@ -45,8 +45,10 @@ def plot_results(y_hat: torch.tensor, y: torch.tensor, ap: AudioProcessor, name_
         name_prefix = ""
 
     # select an instance from batch
-    y_hat = y_hat[0].squeeze().detach().cpu().numpy()
-    y = y[0].squeeze().detach().cpu().numpy()
+    # `.float()` upcasts bf16/fp16 → fp32 so .numpy() works on autocast outputs
+    # (numpy doesn't support bf16 at all; Blackwell GPUs default autocast to bf16)
+    y_hat = y_hat[0].squeeze().detach().float().cpu().numpy()
+    y = y[0].squeeze().detach().float().cpu().numpy()
 
     spec_fake = ap.melspectrogram(y_hat).T
     spec_real = ap.melspectrogram(y).T

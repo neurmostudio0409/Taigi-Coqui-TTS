@@ -287,8 +287,8 @@ class Wavegrad(BaseVocoder):
             y_pred = self.inference(x)
             # compute spectrograms
             figures = plot_results(y_pred, y, ap, "test")
-            # Sample audio
-            sample_voice = y_pred[0].squeeze(0).detach().cpu().numpy()
+            # Sample audio — .float() upcasts bf16/fp16 → fp32 so .numpy() works
+            sample_voice = y_pred[0].squeeze(0).detach().float().cpu().numpy()
         return figures, {"test/audio": sample_voice}
 
     def get_optimizer(self):
