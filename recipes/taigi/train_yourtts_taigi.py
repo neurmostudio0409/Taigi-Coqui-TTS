@@ -45,7 +45,7 @@ OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 RESTORE_PATH = None
 
 SKIP_TRAIN_EPOCH = False
-BATCH_SIZE = 16  # consumer GPU; raise to 64+ on H100
+BATCH_SIZE = 8  # RTX 4060 8GB: safe default with fp16; raise to 64+ on H100
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = 10
 
