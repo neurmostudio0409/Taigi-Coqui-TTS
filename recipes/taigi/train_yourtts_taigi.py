@@ -148,6 +148,17 @@ NUM_LOADER_WORKERS = _envint("TAIGI_NUM_WORKERS", 4)  # DataLoader workers + pre
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = _envint("TAIGI_MAX_AUDIO_LEN", 10)
 
+# cuDNN auto-tuner — pick fastest conv kernels for input shapes. Adds ~10-30 sec
+# startup overhead per shape change but yields 5-15% steady-state speedup on
+# modern GPUs (esp. Blackwell/Hopper). Off by default to keep first-epoch logs
+# stable; flip to true on bigger GPUs to squeeze more throughput.
+CUDNN_BENCHMARK = _envbool("TAIGI_CUDNN_BENCHMARK", False)
+
+# Bucket sampler bin size for length-sorted batching. Larger = better
+# length packing (less padding waste) but more memory for the sampler buffer.
+# 48 is fine for 8-32 GB; raise to 96-192 on H200/B200.
+BATCH_GROUP_SIZE = _envint("TAIGI_BATCH_GROUP_SIZE", 48)
+
 # Mix in the 媠聲 (Suí-siann) single-speaker studio-quality corpus on top of
 # CV nan-tw. Adds ~4.75 hr of clean Tâi-lô-labelled audio from a single
 # professional speaker, complementing CV's crowdsourced multi-speaker pool.
@@ -395,7 +406,7 @@ def main() -> None:
         logger_uri=None,
         audio=audio_config,
         batch_size=BATCH_SIZE,
-        batch_group_size=48,
+        batch_group_size=BATCH_GROUP_SIZE,
         eval_batch_size=BATCH_SIZE,
         num_loader_workers=NUM_LOADER_WORKERS,
         eval_split_max_size=256,
@@ -427,7 +438,7 @@ def main() -> None:
         precompute_num_workers=NUM_LOADER_WORKERS,
         start_by_longest=True,
         datasets=DATASETS_CONFIG_LIST,
-        cudnn_benchmark=False,
+        cudnn_benchmark=CUDNN_BENCHMARK,
         max_audio_len=SAMPLE_RATE * MAX_AUDIO_LEN_IN_SECONDS,
         mixed_precision=True,  # consumer GPU: enable AMP to fit batch
         # Even-out speaker exposure so the heavy-tail spk_0 doesn't dominate.
