@@ -61,8 +61,12 @@ PREPARED_DIR = os.path.join(
 cv_taigi_config = BaseDatasetConfig(
     formatter="common_voice_taigi",
     dataset_name="cv_nan_tw_25",
-    meta_file_train=os.path.join(PREPARED_DIR, "metadata_train.csv"),
-    meta_file_val=os.path.join(PREPARED_DIR, "metadata_dev.csv"),
+    # Use the WAV-converted metadata (produced by resample_to_wav.py).
+    # Loading WAV via soundfile sidesteps torchaudio's torchcodec dep and
+    # skips MP3 decode every step. Fall back to metadata_*.csv (MP3) only
+    # if you haven't run resample_to_wav.py.
+    meta_file_train=os.path.join(PREPARED_DIR, "metadata_train_wav.csv"),
+    meta_file_val=os.path.join(PREPARED_DIR, "metadata_dev_wav.csv"),
     path=CORPUS_ROOT,
     language="nan-tw",
 )

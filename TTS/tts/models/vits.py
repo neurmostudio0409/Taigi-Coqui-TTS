@@ -70,7 +70,18 @@ def load_audio(file_path):
     Return Shapes:
         - x: :math:`[1, T]`
     """
-    x, sr = torchaudio.load(file_path)
+    # torchaudio >= 2.5 routes load() through torchcodec, which is an extra
+    # install + ffmpeg backend. soundfile handles WAV / FLAC natively and is
+    # already in the project's requirements, so use it when possible to
+    # eliminate the torchcodec dependency for the common pre-resampled case.
+    lower = str(file_path).lower()
+    if lower.endswith((".wav", ".flac", ".ogg")):
+        import soundfile as sf
+        audio, sr = sf.read(file_path, dtype="float32", always_2d=True)
+        # soundfile returns (T, C); torchaudio returns (C, T).
+        x = torch.from_numpy(audio).T.contiguous()
+    else:
+        x, sr = torchaudio.load(file_path)
     # MP3 decoding (and some 32-bit float WAVs) can produce a handful of
     # samples a hair outside [-1, 1] due to format quantization. The old
     # `assert` would crash a DataLoader worker mid-epoch; clamping is the
