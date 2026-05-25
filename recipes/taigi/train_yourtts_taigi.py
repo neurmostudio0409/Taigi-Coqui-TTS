@@ -45,7 +45,7 @@ OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 RESTORE_PATH = None
 
 SKIP_TRAIN_EPOCH = False
-BATCH_SIZE = 32  # RTX 5090 32GB VRAM (Blackwell); fp16 mixed precision
+BATCH_SIZE = 64  # RTX 5090 32GB VRAM (Blackwell); fp16. batch=32 only used 11.5/31.5GB; 64 fits ~22GB
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = 10
 
