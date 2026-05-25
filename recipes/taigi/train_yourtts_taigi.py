@@ -159,6 +159,12 @@ CUDNN_BENCHMARK = _envbool("TAIGI_CUDNN_BENCHMARK", False)
 # 48 is fine for 8-32 GB; raise to 96-192 on H200/B200.
 BATCH_GROUP_SIZE = _envint("TAIGI_BATCH_GROUP_SIZE", 48)
 
+# Checkpoint frequency + retention — each ckpt is ~350 MB for YourTTS, so on
+# disk-constrained machines (Vast.ai often has small rootfs) cut these down.
+# best_model_*.pth is always kept on top of these N.
+SAVE_STEP = _envint("TAIGI_SAVE_STEP", 5000)
+SAVE_N_CHECKPOINTS = _envint("TAIGI_SAVE_N_CHECKPOINTS", 2)
+
 # Mix in the 媠聲 (Suí-siann) single-speaker studio-quality corpus on top of
 # CV nan-tw. Adds ~4.75 hr of clean Tâi-lô-labelled audio from a single
 # professional speaker, complementing CV's crowdsourced multi-speaker pool.
@@ -413,8 +419,8 @@ def main() -> None:
         print_step=50,
         plot_step=100,
         log_model_step=1000,
-        save_step=5000,
-        save_n_checkpoints=2,
+        save_step=SAVE_STEP,
+        save_n_checkpoints=SAVE_N_CHECKPOINTS,
         save_checkpoints=True,
         target_loss="loss_1",
         print_eval=False,
