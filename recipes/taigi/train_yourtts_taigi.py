@@ -93,6 +93,13 @@ SPEAKER_ENCODER_CONFIG_PATH = (
     "https://github.com/coqui-ai/TTS/releases/download/speaker_encoder_model/config_se.json"
 )
 
+# Project-local cache for pretrained upstream checkpoints.
+# Keeps the multi-GB download out of %USERPROFILE%\.local\share\tts and
+# on the same drive as the project. Gitignored via the top-level `models/`
+# entry in .gitignore.
+PRETRAINED_DIR = os.path.join(PROJECT_ROOT, "models", "pretrained")
+
+
 def _resolve_restore_path() -> str | None:
     """Return the .pth checkpoint path for Trainer's restore_path.
 
@@ -104,8 +111,11 @@ def _resolve_restore_path() -> str | None:
         return RESTORE_PATH
     if FINETUNE_FROM_COQUI_YOURTTS:
         print(">>> Fine-tune mode: fetching Coqui YourTTS multilingual ckpt...")
+        os.makedirs(PRETRAINED_DIR, exist_ok=True)
         from TTS.utils.manage import ModelManager
-        mm = ModelManager()
+        # ModelManager appends "tts/" to output_prefix, so the file ends up at
+        # <PRETRAINED_DIR>/tts/<model_name>/model_file.pth — within the project.
+        mm = ModelManager(output_prefix=PRETRAINED_DIR)
         path, _, _ = mm.download_model(
             "tts_models/multilingual/multi-dataset/your_tts"
         )
