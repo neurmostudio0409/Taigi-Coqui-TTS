@@ -15,6 +15,48 @@ To launch:
 """
 
 import os
+from pathlib import Path
+
+
+def _load_dotenv(env_path: Path) -> None:
+    """Tiny .env loader (no python-dotenv dependency).
+
+    Shell environment wins over .env so users can still override per-run with
+    `$env:TAIGI_BATCH_SIZE=8; python ...`. Quietly no-ops if .env missing.
+    """
+    if not env_path.exists():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def _envbool(name: str, default: bool) -> bool:
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def _envfloat(name: str, default: float) -> float:
+    v = os.environ.get(name)
+    return float(v) if v is not None else default
+
+
+def _envint(name: str, default: int) -> int:
+    v = os.environ.get(name)
+    return int(v) if v is not None else default
+
+
+# Load .env at the very top so all the constants below can read it.
+_load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 
 import torch
 from trainer import Trainer, TrainerArgs
@@ -41,6 +83,9 @@ PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_PATH, "..", ".."))
 RUN_NAME = "YourTTS-Taigi-CV25"
 OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 
+# All tuneable settings below can be overridden via `.env` at the project
+# root or any TAIGI_* shell env var. Defaults match this branch's GPU profile.
+
 # Set True to warm-start from Coqui's official YourTTS multilingual checkpoint
 # (pretrained on VCTK / LibriTTS / CSS10 — includes zero-shot cloning).
 # For our 11.5 hr Taigi corpus, fine-tuning typically converges 5-10x faster
@@ -51,7 +96,7 @@ OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 #
 # Set False for from-scratch training (slower, but cleaner — useful for
 # benchmarking or avoiding any English/Portuguese accent bleed-through).
-FINETUNE_FROM_COQUI_YOURTTS = True
+FINETUNE_FROM_COQUI_YOURTTS = _envbool("TAIGI_FINETUNE", True)
 
 # LR multiplier applied to lr_gen / lr_disc when fine-tuning. Coqui's Trainer
 # resets LR to config defaults on restore (i.e. 2e-4 for VITS) — that's the
@@ -59,7 +104,7 @@ FINETUNE_FROM_COQUI_YOURTTS = True
 # forget the upstream knowledge in the first few hundred steps. 0.1 (→ 2e-5)
 # is the standard fine-tune setting for VITS / YourTTS class models.
 # Ignored when FINETUNE_FROM_COQUI_YOURTTS=False.
-FINETUNE_LR_SCALE = 0.1
+FINETUNE_LR_SCALE = _envfloat("TAIGI_LR_SCALE", 0.1)
 
 # Minimum expected size (bytes) of the pretrained ckpt — sanity check after
 # download. The Coqui YourTTS multilingual model is ~350-700 MB depending on
@@ -67,12 +112,13 @@ FINETUNE_LR_SCALE = 0.1
 FINETUNE_CKPT_MIN_BYTES = 50 * 1024 * 1024
 
 # Explicit checkpoint path; non-None overrides FINETUNE_FROM_COQUI_YOURTTS.
-RESTORE_PATH = None
+# Use TAIGI_RESTORE_PATH=<path> to set without editing the recipe.
+RESTORE_PATH = os.environ.get("TAIGI_RESTORE_PATH") or None
 
 SKIP_TRAIN_EPOCH = False
-BATCH_SIZE = 16  # RTX 4060 8GB: batch=8 only used 2.9GB; 16 fits ~5.8GB safely
+BATCH_SIZE = _envint("TAIGI_BATCH_SIZE", 16)  # 4060 default: batch=8 → 2.9GB; 16 → ~5.8GB
 SAMPLE_RATE = 16000
-MAX_AUDIO_LEN_IN_SECONDS = 10
+MAX_AUDIO_LEN_IN_SECONDS = _envint("TAIGI_MAX_AUDIO_LEN", 10)
 
 # Corpus + prepared-metadata paths.
 CORPUS_ROOT = os.path.join(
@@ -323,6 +369,10 @@ def main() -> None:
         use_weighted_sampler=True,
         weighted_sampler_attrs={"speaker_name": 1.0},
         weighted_sampler_multipliers={},
+        # Speaker-consistency loss (SCL) coefficient — currently DORMANT because
+        # use_speaker_encoder_as_loss=False in model_args (Coqui default). To
+        # enable SCL for cloning fidelity, uncomment the flag in VitsArgs above
+        # AFTER initial convergence (e.g. epoch 30+); this alpha then takes effect.
         speaker_encoder_loss_alpha=9.0,
         # A handful of held-out cloning_eval speaker IDs are used as reference
         # speakers for periodic test-sentence generation during training.
