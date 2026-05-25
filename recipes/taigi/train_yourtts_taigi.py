@@ -148,6 +148,15 @@ NUM_LOADER_WORKERS = _envint("TAIGI_NUM_WORKERS", 24)  # B200 cloud default
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = _envint("TAIGI_MAX_AUDIO_LEN", 10)
 
+# Mix in the 媠聲 (Suí-siann) single-speaker studio-quality corpus on top of
+# CV nan-tw. Adds ~4.75 hr of clean Tâi-lô-labelled audio from a single
+# professional speaker, complementing CV's crowdsourced multi-speaker pool.
+# Requires running:
+#   python recipes/taigi/data/download_suisiann.py --extract
+#   python recipes/taigi/data/prepare_suisiann.py
+# before training (otherwise startup will fail with a clear error).
+INCLUDE_SUISIANN = _envbool("TAIGI_INCLUDE_SUISIANN", False)
+
 # Corpus + prepared-metadata paths.
 CORPUS_ROOT = os.path.join(
     PROJECT_ROOT, "data", "common_voice_nan_tw",
@@ -171,6 +180,20 @@ cv_taigi_config = BaseDatasetConfig(
 )
 
 DATASETS_CONFIG_LIST = [cv_taigi_config]
+
+# 媠聲 lives under PROJECT_ROOT/data/suisiann/ with the same pipe-delimited
+# metadata format as CV — same formatter works for both.
+if INCLUDE_SUISIANN:
+    SUISIANN_ROOT = os.path.join(PROJECT_ROOT, "data", "suisiann")
+    suisiann_config = BaseDatasetConfig(
+        formatter="common_voice_taigi",
+        dataset_name="suisiann_v0_2_1",
+        meta_file_train=os.path.join(SUISIANN_ROOT, "metadata_suisiann_train.csv"),
+        meta_file_val=os.path.join(SUISIANN_ROOT, "metadata_suisiann_dev.csv"),
+        path=SUISIANN_ROOT,
+        language="nan-tw",
+    )
+    DATASETS_CONFIG_LIST.append(suisiann_config)
 
 # Pre-trained Coqui H/ASP speaker encoder (YourTTS-style external embedding).
 SPEAKER_ENCODER_CHECKPOINT_PATH = (
@@ -246,6 +269,18 @@ def _verify_wav_metadata() -> None:
                 f"  Run this first to produce WAV mirrors:\n"
                 f"  python recipes/taigi/data/resample_to_wav.py --workers 8"
             )
+    if INCLUDE_SUISIANN:
+        suisiann_root = os.path.join(PROJECT_ROOT, "data", "suisiann")
+        for split in ("train", "dev"):
+            p = os.path.join(suisiann_root, f"metadata_suisiann_{split}.csv")
+            if not os.path.isfile(p):
+                raise FileNotFoundError(
+                    f"missing {p}\n"
+                    f"  TAIGI_INCLUDE_SUISIANN=true but Suí-siann not prepared.\n"
+                    f"  Run:\n"
+                    f"    python recipes/taigi/data/download_suisiann.py --extract\n"
+                    f"    python recipes/taigi/data/prepare_suisiann.py"
+                )
 
 
 def _print_mode_banner(mode: str, restore_path: str | None,
@@ -278,6 +313,8 @@ def _print_mode_banner(mode: str, restore_path: str | None,
     print(f"  RUN_NAME        : {RUN_NAME}")
     print(f"  BATCH_SIZE      : {BATCH_SIZE}")
     print(f"  max audio       : {MAX_AUDIO_LEN_IN_SECONDS} sec @ {SAMPLE_RATE} Hz")
+    datasets = [d.dataset_name for d in DATASETS_CONFIG_LIST]
+    print(f"  datasets        : {', '.join(datasets)}")
     print(bar)
     print()
 
