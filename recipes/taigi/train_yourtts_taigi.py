@@ -38,14 +38,14 @@ torch.set_num_threads(min(8, os.cpu_count() or 1))
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_PATH, "..", ".."))
 
-RUN_NAME = "YourTTS-Taigi-CV25"
+RUN_NAME = "YourTTS-Taigi-CV25-H200"
 OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 
 # Set to a YourTTS multilingual ckpt path to warm-start; None = from scratch.
 RESTORE_PATH = None
 
 SKIP_TRAIN_EPOCH = False
-BATCH_SIZE = 8  # RTX 4060 8GB: safe default with fp16; raise to 64+ on H100
+BATCH_SIZE = 96  # H200 141GB HBM3e (Hopper sm_90); fp16 mixed precision
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = 10
 
@@ -137,7 +137,7 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         batch_group_size=48,
         eval_batch_size=BATCH_SIZE,
-        num_loader_workers=4,
+        num_loader_workers=16,
         eval_split_max_size=256,
         print_step=50,
         plot_step=100,
@@ -164,7 +164,7 @@ def main() -> None:
             is_sorted=False,
         ),
         phoneme_cache_path=None,
-        precompute_num_workers=4,
+        precompute_num_workers=16,
         start_by_longest=True,
         datasets=DATASETS_CONFIG_LIST,
         cudnn_benchmark=False,
