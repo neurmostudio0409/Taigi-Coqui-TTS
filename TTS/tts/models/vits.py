@@ -71,7 +71,11 @@ def load_audio(file_path):
         - x: :math:`[1, T]`
     """
     x, sr = torchaudio.load(file_path)
-    assert (x > 1).sum() + (x < -1).sum() == 0
+    # MP3 decoding (and some 32-bit float WAVs) can produce a handful of
+    # samples a hair outside [-1, 1] due to format quantization. The old
+    # `assert` would crash a DataLoader worker mid-epoch; clamping is the
+    # standard audio-loader behavior and matches the function's docstring.
+    x = x.clamp_(-1.0, 1.0)
     return x, sr
 
 
