@@ -1494,7 +1494,24 @@ class Vits(BaseTTS):
         # get d_vectors from audio file names
         if self.speaker_manager is not None and self.speaker_manager.embeddings and self.args.use_d_vector_file:
             d_vector_mapping = self.speaker_manager.embeddings
-            d_vectors = [d_vector_mapping[w]["embedding"] for w in batch["audio_unique_names"]]
+            # Resilient lookup: also index by basename stem. Allows swapping
+            # the audio-path prefix (e.g. clips/ MP3 ↔ clips_wav/ WAV) without
+            # invalidating already-computed d-vectors. The stem of each
+            # Common Voice clip (e.g. common_voice_nan-tw_31977309) is unique.
+            if not hasattr(self, "_dvec_by_stem"):
+                from os.path import basename, splitext
+                self._dvec_by_stem = {
+                    splitext(basename(k.replace("\\", "/").split("#", 1)[-1]))[0]: v
+                    for k, v in d_vector_mapping.items()
+                }
+            from os.path import basename, splitext
+            d_vectors = []
+            for w in batch["audio_unique_names"]:
+                entry = d_vector_mapping.get(w)
+                if entry is None:
+                    stem = splitext(basename(w.replace("\\", "/").split("#", 1)[-1]))[0]
+                    entry = self._dvec_by_stem[stem]
+                d_vectors.append(entry["embedding"])
             d_vectors = torch.FloatTensor(d_vectors)
 
         # get language ids from language names
