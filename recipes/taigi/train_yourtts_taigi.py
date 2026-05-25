@@ -23,6 +23,11 @@ def _load_dotenv(env_path: Path) -> None:
 
     Shell environment wins over .env so users can still override per-run with
     `$env:TAIGI_BATCH_SIZE=8; python ...`. Quietly no-ops if .env missing.
+
+    Supports:
+      - blank lines and ``# comment`` lines
+      - inline comments after the value:  KEY=value  # comment
+      - simple single/double quoting:     KEY="value with spaces"
     """
     if not env_path.exists():
         return
@@ -32,26 +37,48 @@ def _load_dotenv(env_path: Path) -> None:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        value = value.strip()
+        # If the value isn't quoted, strip an inline `# ...` comment.
+        # If it IS quoted, keep everything between the quotes verbatim.
+        if value.startswith(('"', "'")) and len(value) >= 2 and value[-1] == value[0]:
+            value = value[1:-1]
+        else:
+            comment_idx = value.find("#")
+            if comment_idx >= 0:
+                value = value[:comment_idx].strip()
         if key and key not in os.environ:
             os.environ[key] = value
 
 
 def _envbool(name: str, default: bool) -> bool:
     v = os.environ.get(name)
-    if v is None:
+    if v is None or v.strip() == "":
         return default
     return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 def _envfloat(name: str, default: float) -> float:
     v = os.environ.get(name)
-    return float(v) if v is not None else default
+    if v is None or v.strip() == "":
+        return default
+    try:
+        return float(v.strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"env var {name}={v!r} is not a valid float (default {default})"
+        ) from exc
 
 
 def _envint(name: str, default: int) -> int:
     v = os.environ.get(name)
-    return int(v) if v is not None else default
+    if v is None or v.strip() == "":
+        return default
+    try:
+        return int(v.strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"env var {name}={v!r} is not a valid int (default {default})"
+        ) from exc
 
 
 # Load .env at the very top so all the constants below can read it.
@@ -117,6 +144,7 @@ RESTORE_PATH = os.environ.get("TAIGI_RESTORE_PATH") or None
 
 SKIP_TRAIN_EPOCH = False
 BATCH_SIZE = _envint("TAIGI_BATCH_SIZE", 96)  # H200 141GB default; env override possible
+NUM_LOADER_WORKERS = _envint("TAIGI_NUM_WORKERS", 16)  # H200 cloud default
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = _envint("TAIGI_MAX_AUDIO_LEN", 10)
 
@@ -332,7 +360,11 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         batch_group_size=48,
         eval_batch_size=BATCH_SIZE,
+<<<<<<< HEAD
         num_loader_workers=16,
+=======
+        num_loader_workers=NUM_LOADER_WORKERS,
+>>>>>>> c22ae735 (.env 解析 robustness + num_workers env override (review 4))
         eval_split_max_size=256,
         print_step=50,
         plot_step=100,
@@ -359,7 +391,11 @@ def main() -> None:
             is_sorted=False,
         ),
         phoneme_cache_path=None,
+<<<<<<< HEAD
         precompute_num_workers=16,
+=======
+        precompute_num_workers=NUM_LOADER_WORKERS,
+>>>>>>> c22ae735 (.env 解析 robustness + num_workers env override (review 4))
         start_by_longest=True,
         datasets=DATASETS_CONFIG_LIST,
         cudnn_benchmark=False,
