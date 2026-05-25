@@ -397,11 +397,7 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         batch_group_size=48,
         eval_batch_size=BATCH_SIZE,
-<<<<<<< HEAD
-        num_loader_workers=16,
-=======
         num_loader_workers=NUM_LOADER_WORKERS,
->>>>>>> c22ae735 (.env 解析 robustness + num_workers env override (review 4))
         eval_split_max_size=256,
         print_step=50,
         plot_step=100,
@@ -428,11 +424,7 @@ def main() -> None:
             is_sorted=False,
         ),
         phoneme_cache_path=None,
-<<<<<<< HEAD
-        precompute_num_workers=16,
-=======
         precompute_num_workers=NUM_LOADER_WORKERS,
->>>>>>> c22ae735 (.env 解析 robustness + num_workers env override (review 4))
         start_by_longest=True,
         datasets=DATASETS_CONFIG_LIST,
         cudnn_benchmark=False,
