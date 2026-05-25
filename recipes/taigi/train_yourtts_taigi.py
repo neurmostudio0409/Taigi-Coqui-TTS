@@ -53,6 +53,19 @@ OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 # benchmarking or avoiding any English/Portuguese accent bleed-through).
 FINETUNE_FROM_COQUI_YOURTTS = True
 
+# LR multiplier applied to lr_gen / lr_disc when fine-tuning. Coqui's Trainer
+# resets LR to config defaults on restore (i.e. 2e-4 for VITS) — that's the
+# "from scratch" LR. Hammering pretrained weights at full LR will catastrophic-
+# forget the upstream knowledge in the first few hundred steps. 0.1 (→ 2e-5)
+# is the standard fine-tune setting for VITS / YourTTS class models.
+# Ignored when FINETUNE_FROM_COQUI_YOURTTS=False.
+FINETUNE_LR_SCALE = 0.1
+
+# Minimum expected size (bytes) of the pretrained ckpt — sanity check after
+# download. The Coqui YourTTS multilingual model is ~350-700 MB depending on
+# version. Anything below ~50 MB is almost certainly a partial download.
+FINETUNE_CKPT_MIN_BYTES = 50 * 1024 * 1024
+
 # Explicit checkpoint path; non-None overrides FINETUNE_FROM_COQUI_YOURTTS.
 RESTORE_PATH = None
 
@@ -100,6 +113,24 @@ SPEAKER_ENCODER_CONFIG_PATH = (
 PRETRAINED_DIR = os.path.join(PROJECT_ROOT, "models", "pretrained")
 
 
+def _verify_checkpoint(path: str) -> None:
+    """Sanity-check a downloaded pretrained ckpt before training tries to load it.
+
+    Catches truncated downloads / corrupted files at startup instead of mid-
+    epoch when Trainer.restore_model() tries to torch.load() them.
+    """
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"ckpt not found after download: {path}")
+    size = os.path.getsize(path)
+    if size < FINETUNE_CKPT_MIN_BYTES:
+        raise RuntimeError(
+            f"ckpt at {path} is only {size / 1024**2:.1f} MB — looks truncated "
+            f"(expected >= {FINETUNE_CKPT_MIN_BYTES / 1024**2:.0f} MB). "
+            f"Delete the file and re-run to retry."
+        )
+    print(f"  ckpt sanity ok: {size / 1024**2:.1f} MB")
+
+
 def _resolve_restore_path() -> str | None:
     """Return the .pth checkpoint path for Trainer's restore_path.
 
@@ -107,7 +138,8 @@ def _resolve_restore_path() -> str | None:
     > None (from scratch).
     """
     if RESTORE_PATH is not None:
-        print(f">>> Warm-start from explicit RESTORE_PATH: {RESTORE_PATH}\n")
+        print(f">>> Warm-start from explicit RESTORE_PATH: {RESTORE_PATH}")
+        _verify_checkpoint(RESTORE_PATH)
         return RESTORE_PATH
     if FINETUNE_FROM_COQUI_YOURTTS:
         print(">>> Fine-tune mode: fetching Coqui YourTTS multilingual ckpt...")
@@ -119,10 +151,37 @@ def _resolve_restore_path() -> str | None:
         path, _, _ = mm.download_model(
             "tts_models/multilingual/multi-dataset/your_tts"
         )
-        print(f">>> Will warm-start from: {path}\n")
+        print(f">>> Will warm-start from: {path}")
+        _verify_checkpoint(path)
         return path
-    print(">>> Training from scratch (FINETUNE_FROM_COQUI_YOURTTS=False).\n")
+    print(">>> Training from scratch (FINETUNE_FROM_COQUI_YOURTTS=False).")
     return None
+
+
+def _print_mode_banner(restore_path: str | None, base_lr: float, eff_lr: float) -> None:
+    """Print a hard-to-miss banner stating training mode + key params."""
+    mode = "FINE-TUNE" if restore_path else "FROM-SCRATCH"
+    bar = "=" * 72
+    print()
+    print(bar)
+    print(f"  TAIGI TTS — {mode} MODE")
+    print(bar)
+    if restore_path:
+        print(f"  warm-start from : {restore_path}")
+        print(f"  lr (gen / disc) : {eff_lr:.2e}  "
+              f"(scaled {FINETUNE_LR_SCALE}x from default {base_lr:.2e})")
+        print(f"  expect          : convergence in 30-50 epoch, mel loss < 17 target")
+        print(f"  warning         : TensorBoard global_step will start from "
+              f"upstream ckpt's step (~745k), not 0 — cosmetic only")
+    else:
+        print(f"  lr (gen / disc) : {base_lr:.2e}  (config default)")
+        print(f"  expect          : convergence in 200-300 epoch, mel loss ~17.8 plateau")
+    print(f"  RUN_NAME        : {RUN_NAME}")
+    print(f"  BATCH_SIZE      : {BATCH_SIZE}")
+    print(f"  max audio       : {MAX_AUDIO_LEN_IN_SECONDS} sec")
+    print(f"  sample rate     : {SAMPLE_RATE} Hz")
+    print(bar)
+    print()
 
 
 def main() -> None:
@@ -242,9 +301,21 @@ def main() -> None:
         eval_split_size=config.eval_split_size,
     )
 
+    restore_path = _resolve_restore_path()
+
+    # When fine-tuning, scale down LR to avoid catastrophic forgetting of the
+    # upstream pretrained weights. Coqui's Trainer.restore_lr() resets LR to
+    # the config values on restore (not the optimizer's saved state), so we
+    # bake the scaled value directly into the config here.
+    base_lr = config.lr_gen
+    if restore_path is not None:
+        config.lr_gen = base_lr * FINETUNE_LR_SCALE
+        config.lr_disc = config.lr_disc * FINETUNE_LR_SCALE
+    eff_lr = config.lr_gen
+    _print_mode_banner(restore_path, base_lr, eff_lr)
+
     model = Vits.init_from_config(config)
 
-    restore_path = _resolve_restore_path()
     trainer = Trainer(
         TrainerArgs(restore_path=restore_path, skip_train_epoch=SKIP_TRAIN_EPOCH),
         config,
