@@ -24,6 +24,7 @@ lib64/
 parts/
 sdist/
 var/
+.playwright-mcp/
 wheels/
 *.egg-info/
 .installed.cfg
@@ -170,3 +171,6 @@ depot/*
 coqui_recipes/*
 local_scripts/*
 coqui_demos/*
+
+# Pretrained upstream checkpoints downloaded by the Taigi recipe (gigabytes)
+models/
