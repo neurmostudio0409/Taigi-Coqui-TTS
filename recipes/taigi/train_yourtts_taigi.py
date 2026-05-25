@@ -158,9 +158,29 @@ def _resolve_restore_path() -> str | None:
     return None
 
 
-def _print_mode_banner(restore_path: str | None, base_lr: float, eff_lr: float) -> None:
-    """Print a hard-to-miss banner stating training mode + key params."""
-    mode = "FINE-TUNE" if restore_path else "FROM-SCRATCH"
+def _verify_wav_metadata() -> None:
+    """Fail fast if metadata_*_wav.csv mirrors haven't been generated yet.
+
+    The recipe points at WAV-converted metadata. Without running resample_to_wav.py
+    first, the dataset formatter would raise an opaque "0 items found" later.
+    """
+    for split in ("train", "dev"):
+        p = os.path.join(PREPARED_DIR, f"metadata_{split}_wav.csv")
+        if not os.path.isfile(p):
+            raise FileNotFoundError(
+                f"missing {p}\n"
+                f"  Run this first to produce WAV mirrors:\n"
+                f"  python recipes/taigi/data/resample_to_wav.py --workers 8"
+            )
+
+
+def _print_mode_banner(mode: str, restore_path: str | None,
+                       base_lr: float, eff_lr: float) -> None:
+    """Print a hard-to-miss banner stating training mode + key params.
+
+    Modes: 'FINE-TUNE' (auto Coqui pretrained), 'WARM-START' (explicit ckpt),
+    'FROM-SCRATCH'.
+    """
     bar = "=" * 72
     print()
     print(bar)
@@ -168,23 +188,45 @@ def _print_mode_banner(restore_path: str | None, base_lr: float, eff_lr: float) 
     print(bar)
     if restore_path:
         print(f"  warm-start from : {restore_path}")
+    if mode == "FINE-TUNE":
         print(f"  lr (gen / disc) : {eff_lr:.2e}  "
               f"(scaled {FINETUNE_LR_SCALE}x from default {base_lr:.2e})")
-        print(f"  expect          : convergence in 30-50 epoch, mel loss < 17 target")
-        print(f"  warning         : TensorBoard global_step will start from "
-              f"upstream ckpt's step (~745k), not 0 — cosmetic only")
+        print(f"  note            : LR scaled down to protect pretrained weights "
+              f"from catastrophic forgetting")
+        print(f"  note            : TensorBoard global_step starts from upstream "
+              f"ckpt's step (cosmetic only)")
+    elif mode == "WARM-START":
+        print(f"  lr (gen / disc) : {base_lr:.2e}  (config default, NOT scaled)")
+        print(f"  note            : LR not scaled — assumes you're resuming or "
+              f"have set FINETUNE_LR_SCALE intentionally")
     else:
         print(f"  lr (gen / disc) : {base_lr:.2e}  (config default)")
-        print(f"  expect          : convergence in 200-300 epoch, mel loss ~17.8 plateau")
     print(f"  RUN_NAME        : {RUN_NAME}")
     print(f"  BATCH_SIZE      : {BATCH_SIZE}")
-    print(f"  max audio       : {MAX_AUDIO_LEN_IN_SECONDS} sec")
-    print(f"  sample rate     : {SAMPLE_RATE} Hz")
+    print(f"  max audio       : {MAX_AUDIO_LEN_IN_SECONDS} sec @ {SAMPLE_RATE} Hz")
     print(bar)
     print()
 
 
 def main() -> None:
+    # Step 0 — fail fast on missing prerequisites, decide mode, show banner.
+    _verify_wav_metadata()
+    restore_path = _resolve_restore_path()
+    # Auto-fetched Coqui pretrained ⇒ true fine-tune (LR must be scaled down).
+    # Explicit RESTORE_PATH ⇒ assume user knows what they're doing (resume or
+    # custom warm-start), don't touch LR.
+    is_finetune_mode = (restore_path is not None) and (RESTORE_PATH is None)
+    if restore_path is None:
+        mode_label = "FROM-SCRATCH"
+    elif is_finetune_mode:
+        mode_label = "FINE-TUNE"
+    else:
+        mode_label = "WARM-START"
+    # VitsConfig.lr_gen default is 2e-4 (verified in TTS/tts/configs/vits_config.py).
+    base_lr = 2e-4
+    eff_lr = base_lr * FINETUNE_LR_SCALE if is_finetune_mode else base_lr
+    _print_mode_banner(mode_label, restore_path, base_lr, eff_lr)
+
     # Pre-compute speaker embeddings (d-vectors) once per dataset.
     d_vector_files = []
     for dataset_conf in DATASETS_CONFIG_LIST:
@@ -301,18 +343,12 @@ def main() -> None:
         eval_split_size=config.eval_split_size,
     )
 
-    restore_path = _resolve_restore_path()
-
-    # When fine-tuning, scale down LR to avoid catastrophic forgetting of the
-    # upstream pretrained weights. Coqui's Trainer.restore_lr() resets LR to
-    # the config values on restore (not the optimizer's saved state), so we
-    # bake the scaled value directly into the config here.
-    base_lr = config.lr_gen
-    if restore_path is not None:
-        config.lr_gen = base_lr * FINETUNE_LR_SCALE
-        config.lr_disc = config.lr_disc * FINETUNE_LR_SCALE
-    eff_lr = config.lr_gen
-    _print_mode_banner(restore_path, base_lr, eff_lr)
+    # Bake the fine-tune LR override into the config now (must happen BEFORE
+    # Trainer construction so Trainer.restore_lr() picks up the scaled value).
+    # See _resolve_restore_path() / banner at top of main() for mode logic.
+    if is_finetune_mode:
+        config.lr_gen *= FINETUNE_LR_SCALE
+        config.lr_disc *= FINETUNE_LR_SCALE
 
     model = Vits.init_from_config(config)
 
