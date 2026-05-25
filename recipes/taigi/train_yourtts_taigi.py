@@ -41,7 +41,19 @@ PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_PATH, "..", ".."))
 RUN_NAME = "YourTTS-Taigi-CV25-B200"
 OUT_PATH = os.path.join(CURRENT_PATH, "runs")
 
-# Set to a YourTTS multilingual ckpt path to warm-start; None = from scratch.
+# Set True to warm-start from Coqui's official YourTTS multilingual checkpoint
+# (pretrained on VCTK / LibriTTS / CSS10 — includes zero-shot cloning).
+# For our 11.5 hr Taigi corpus, fine-tuning typically converges 5-10x faster
+# than from-scratch and gives better cloning quality.
+#
+# The text-embedding table is re-initialized (different 46-token Tâi-lô vocab
+# vs the original English+IPA set) but everything else warm-starts.
+#
+# Set False for from-scratch training (slower, but cleaner — useful for
+# benchmarking or avoiding any English/Portuguese accent bleed-through).
+FINETUNE_FROM_COQUI_YOURTTS = True
+
+# Explicit checkpoint path; non-None overrides FINETUNE_FROM_COQUI_YOURTTS.
 RESTORE_PATH = None
 
 SKIP_TRAIN_EPOCH = False
@@ -80,6 +92,28 @@ SPEAKER_ENCODER_CHECKPOINT_PATH = (
 SPEAKER_ENCODER_CONFIG_PATH = (
     "https://github.com/coqui-ai/TTS/releases/download/speaker_encoder_model/config_se.json"
 )
+
+def _resolve_restore_path() -> str | None:
+    """Return the .pth checkpoint path for Trainer's restore_path.
+
+    Precedence: explicit RESTORE_PATH > FINETUNE_FROM_COQUI_YOURTTS auto-fetch
+    > None (from scratch).
+    """
+    if RESTORE_PATH is not None:
+        print(f">>> Warm-start from explicit RESTORE_PATH: {RESTORE_PATH}\n")
+        return RESTORE_PATH
+    if FINETUNE_FROM_COQUI_YOURTTS:
+        print(">>> Fine-tune mode: fetching Coqui YourTTS multilingual ckpt...")
+        from TTS.utils.manage import ModelManager
+        mm = ModelManager()
+        path, _, _ = mm.download_model(
+            "tts_models/multilingual/multi-dataset/your_tts"
+        )
+        print(f">>> Will warm-start from: {path}\n")
+        return path
+    print(">>> Training from scratch (FINETUNE_FROM_COQUI_YOURTTS=False).\n")
+    return None
+
 
 def main() -> None:
     # Pre-compute speaker embeddings (d-vectors) once per dataset.
@@ -200,8 +234,9 @@ def main() -> None:
 
     model = Vits.init_from_config(config)
 
+    restore_path = _resolve_restore_path()
     trainer = Trainer(
-        TrainerArgs(restore_path=RESTORE_PATH, skip_train_epoch=SKIP_TRAIN_EPOCH),
+        TrainerArgs(restore_path=restore_path, skip_train_epoch=SKIP_TRAIN_EPOCH),
         config,
         output_path=OUT_PATH,
         model=model,
