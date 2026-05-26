@@ -142,6 +142,14 @@ FINETUNE_CKPT_MIN_BYTES = 50 * 1024 * 1024
 # Use TAIGI_RESTORE_PATH=<path> to set without editing the recipe.
 RESTORE_PATH = os.environ.get("TAIGI_RESTORE_PATH") or None
 
+# Resume a previous interrupted run. Provide the run directory under
+# recipes/taigi/runs/. Coqui Trainer auto-loads the latest checkpoint
+# plus optimizer / scheduler / step / epoch — picks up exactly where you
+# left off. OVERRIDES RESTORE_PATH and FINETUNE_FROM_COQUI_YOURTTS.
+# Example:
+#   TAIGI_CONTINUE_PATH=recipes/taigi/runs/YourTTS-Taigi-CV25-B200-May-25-2026_09+44PM-f0402b12
+CONTINUE_PATH = os.environ.get("TAIGI_CONTINUE_PATH") or None
+
 SKIP_TRAIN_EPOCH = False
 BATCH_SIZE = _envint("TAIGI_BATCH_SIZE", 16)  # 4060 default: batch=8 → 2.9GB; 16 → ~5.8GB
 NUM_LOADER_WORKERS = _envint("TAIGI_NUM_WORKERS", 4)  # DataLoader workers + precompute
@@ -305,13 +313,27 @@ def _print_mode_banner(mode: str, restore_path: str | None,
     """Print a hard-to-miss banner stating training mode + key params.
 
     Modes: 'FINE-TUNE' (auto Coqui pretrained), 'WARM-START' (explicit ckpt),
-    'FROM-SCRATCH'.
+    'RESUME' (continue_path), 'FROM-SCRATCH'.
     """
     bar = "=" * 72
     print()
     print(bar)
     print(f"  TAIGI TTS — {mode} MODE")
     print(bar)
+    if mode == "RESUME":
+        print(f"  resuming from   : {restore_path}")
+        print(f"  note            : full state restored — optimizer / scheduler "
+              f"/ step / epoch / LR all preserved from saved checkpoint")
+        print(f"  note            : the saved config.json wins over recipe edits "
+              f"(e.g. lr / batch_size changes since the run started)")
+        print(f"  RUN_NAME        : {RUN_NAME}")
+        print(f"  BATCH_SIZE      : {BATCH_SIZE}  (override possibly overridden by saved)")
+        print(f"  max audio       : {MAX_AUDIO_LEN_IN_SECONDS} sec @ {SAMPLE_RATE} Hz")
+        datasets = [d.dataset_name for d in DATASETS_CONFIG_LIST]
+        print(f"  datasets        : {', '.join(datasets)}")
+        print(bar)
+        print()
+        return
     if restore_path:
         print(f"  warm-start from : {restore_path}")
     if mode == "FINE-TUNE":
@@ -339,21 +361,33 @@ def _print_mode_banner(mode: str, restore_path: str | None,
 def main() -> None:
     # Step 0 — fail fast on missing prerequisites, decide mode, show banner.
     _verify_wav_metadata()
-    restore_path = _resolve_restore_path()
-    # Auto-fetched Coqui pretrained ⇒ true fine-tune (LR must be scaled down).
-    # Explicit RESTORE_PATH ⇒ assume user knows what they're doing (resume or
-    # custom warm-start), don't touch LR.
-    is_finetune_mode = (restore_path is not None) and (RESTORE_PATH is None)
-    if restore_path is None:
-        mode_label = "FROM-SCRATCH"
-    elif is_finetune_mode:
-        mode_label = "FINE-TUNE"
+
+    # RESUME mode overrides everything else: no checkpoint download, no LR
+    # scaling, no banner-prefix work. Trainer takes over completely.
+    if CONTINUE_PATH:
+        if not os.path.isdir(CONTINUE_PATH):
+            raise FileNotFoundError(
+                f"TAIGI_CONTINUE_PATH={CONTINUE_PATH} is not a directory"
+            )
+        _print_mode_banner("RESUME", CONTINUE_PATH, 2e-4, 2e-4)
+        restore_path = None
+        is_finetune_mode = False
     else:
-        mode_label = "WARM-START"
-    # VitsConfig.lr_gen default is 2e-4 (verified in TTS/tts/configs/vits_config.py).
-    base_lr = 2e-4
-    eff_lr = base_lr * FINETUNE_LR_SCALE if is_finetune_mode else base_lr
-    _print_mode_banner(mode_label, restore_path, base_lr, eff_lr)
+        restore_path = _resolve_restore_path()
+        # Auto-fetched Coqui pretrained ⇒ true fine-tune (LR must be scaled down).
+        # Explicit RESTORE_PATH ⇒ assume user knows what they're doing (resume or
+        # custom warm-start), don't touch LR.
+        is_finetune_mode = (restore_path is not None) and (RESTORE_PATH is None)
+        if restore_path is None:
+            mode_label = "FROM-SCRATCH"
+        elif is_finetune_mode:
+            mode_label = "FINE-TUNE"
+        else:
+            mode_label = "WARM-START"
+        # VitsConfig.lr_gen default is 2e-4 (verified in TTS/tts/configs/vits_config.py).
+        base_lr = 2e-4
+        eff_lr = base_lr * FINETUNE_LR_SCALE if is_finetune_mode else base_lr
+        _print_mode_banner(mode_label, restore_path, base_lr, eff_lr)
 
     # Pre-compute speaker embeddings (d-vectors) once per dataset.
     d_vector_files = []
@@ -485,7 +519,11 @@ def main() -> None:
     model = Vits.init_from_config(config)
 
     trainer = Trainer(
-        TrainerArgs(restore_path=restore_path, skip_train_epoch=SKIP_TRAIN_EPOCH),
+        TrainerArgs(
+            continue_path=CONTINUE_PATH or "",
+            restore_path=restore_path,
+            skip_train_epoch=SKIP_TRAIN_EPOCH,
+        ),
         config,
         output_path=OUT_PATH,
         model=model,
