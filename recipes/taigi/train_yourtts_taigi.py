@@ -156,6 +156,13 @@ NUM_LOADER_WORKERS = _envint("TAIGI_NUM_WORKERS", 8)  # 5090 desktop default
 SAMPLE_RATE = 16000
 MAX_AUDIO_LEN_IN_SECONDS = _envint("TAIGI_MAX_AUDIO_LEN", 10)
 
+# Drop clips below this length — guards against word-level / fragment clips
+# that destabilize VITS training. 0.5 s = ~31 mel frames at hop=256 / sr=16k,
+# below HiFi-GAN discriminator's receptive field; 1.0 s = ~62 frames is the
+# practical minimum for stable adversarial loss. Set higher (e.g. 2.0) to
+# focus on prosody-rich sentence clips only.
+MIN_AUDIO_LEN_IN_SECONDS = _envfloat("TAIGI_MIN_AUDIO_LEN", 1.0)
+
 # cuDNN auto-tuner — pick fastest conv kernels for input shapes. Adds ~10-30 sec
 # startup overhead per shape change but yields 5-15% steady-state speedup on
 # modern GPUs (esp. Blackwell/Hopper). Off by default to keep first-epoch logs
@@ -542,6 +549,7 @@ def main() -> None:
         datasets=DATASETS_CONFIG_LIST,
         cudnn_benchmark=CUDNN_BENCHMARK,
         max_audio_len=SAMPLE_RATE * MAX_AUDIO_LEN_IN_SECONDS,
+        min_audio_len=int(SAMPLE_RATE * MIN_AUDIO_LEN_IN_SECONDS),
         mixed_precision=True,  # consumer GPU: enable AMP to fit batch
         # Even-out speaker exposure so the heavy-tail spk_0 doesn't dominate.
         use_weighted_sampler=True,
