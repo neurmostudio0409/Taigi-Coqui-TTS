@@ -17,6 +17,15 @@ import functools
 import sys
 from pathlib import Path
 
+# ⚠️ Import torch FIRST. On Windows, importing gradio / numpy / pyarrow first
+# locks the OpenMP / MKL runtime DLLs, and torch's c10.dll then fails to init
+# with `OSError: [WinError 1114] ... c10.dll`. Loading torch first lets it own
+# the runtime; downstream libs re-use it.
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass  # caller handles in main()
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -265,16 +274,17 @@ def main() -> None:
     p.add_argument("--cpu", action="store_true", help="Force CPU inference")
     args = p.parse_args()
 
-    try:
-        import gradio  # noqa: F401
-    except ImportError:
-        sys.exit("missing dependency: gradio. Run `pip install gradio` first.")
-
+    # torch was eagerly imported at module top (Windows DLL order workaround).
     try:
         import torch
         use_cuda = torch.cuda.is_available() and not args.cpu
     except ImportError:
-        use_cuda = False
+        sys.exit("missing dependency: torch. See README for cu128 install on Blackwell.")
+
+    try:
+        import gradio  # noqa: F401
+    except ImportError:
+        sys.exit("missing dependency: gradio. Run `pip install gradio` first.")
 
     print(f"device: {'cuda' if use_cuda else 'cpu'}")
     print(f"runs:   {RUNS_DIR}")
