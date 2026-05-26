@@ -182,6 +182,20 @@ SAVE_N_CHECKPOINTS = _envint("TAIGI_SAVE_N_CHECKPOINTS", 2)
 # before training (otherwise startup will fail with a clear error).
 INCLUDE_SUISIANN = _envbool("TAIGI_INCLUDE_SUISIANN", False)
 
+# Mix in TAT-TTS corpus (NTUT × 李江卻基金會). ~40.5 hr × 4 studio speakers
+# at 48 kHz 24-bit — the highest-quality + largest single-corpus addition.
+# Requires ACLCLP authorization. Pipeline:
+#   python recipes/taigi/data/download_tat_tts.py
+#   python recipes/taigi/data/prepare_tat_tts.py
+INCLUDE_TAT_TTS = _envbool("TAIGI_INCLUDE_TAT_TTS", False)
+
+# Mix in MOE 教育部臺灣台語常用詞辭典 leku (例句) audio.
+# ⚠️ CC-BY-NC-ND 2.5 — internal/research use only, don't publish trained ckpts.
+# Pipeline:
+#   python recipes/taigi/data/download_moe.py
+#   python recipes/taigi/data/prepare_moe.py
+INCLUDE_MOE_LEKU = _envbool("TAIGI_INCLUDE_MOE_LEKU", False)
+
 # Corpus + prepared-metadata paths.
 CORPUS_ROOT = os.path.join(
     PROJECT_ROOT, "data", "common_voice_nan_tw",
@@ -219,6 +233,30 @@ if INCLUDE_SUISIANN:
         language="nan-tw",
     )
     DATASETS_CONFIG_LIST.append(suisiann_config)
+
+if INCLUDE_TAT_TTS:
+    TAT_TTS_ROOT = os.path.join(PROJECT_ROOT, "data", "tat_tts")
+    tat_tts_config = BaseDatasetConfig(
+        formatter="common_voice_taigi",
+        dataset_name="tat_tts_v1",
+        meta_file_train=os.path.join(TAT_TTS_ROOT, "metadata_tat_train.csv"),
+        meta_file_val=os.path.join(TAT_TTS_ROOT, "metadata_tat_dev.csv"),
+        path=TAT_TTS_ROOT,
+        language="nan-tw",
+    )
+    DATASETS_CONFIG_LIST.append(tat_tts_config)
+
+if INCLUDE_MOE_LEKU:
+    MOE_ROOT = os.path.join(PROJECT_ROOT, "data", "moe_sutian")
+    moe_config = BaseDatasetConfig(
+        formatter="common_voice_taigi",
+        dataset_name="moe_leku",
+        meta_file_train=os.path.join(MOE_ROOT, "metadata_moe_train.csv"),
+        meta_file_val=os.path.join(MOE_ROOT, "metadata_moe_dev.csv"),
+        path=MOE_ROOT,
+        language="nan-tw",
+    )
+    DATASETS_CONFIG_LIST.append(moe_config)
 
 # Pre-trained Coqui H/ASP speaker encoder (YourTTS-style external embedding).
 SPEAKER_ENCODER_CHECKPOINT_PATH = (
@@ -305,6 +343,30 @@ def _verify_wav_metadata() -> None:
                     f"  Run:\n"
                     f"    python recipes/taigi/data/download_suisiann.py --extract\n"
                     f"    python recipes/taigi/data/prepare_suisiann.py"
+                )
+    if INCLUDE_TAT_TTS:
+        tat_root = os.path.join(PROJECT_ROOT, "data", "tat_tts")
+        for split in ("train", "dev"):
+            p = os.path.join(tat_root, f"metadata_tat_{split}.csv")
+            if not os.path.isfile(p):
+                raise FileNotFoundError(
+                    f"missing {p}\n"
+                    f"  TAIGI_INCLUDE_TAT_TTS=true but TAT-TTS not prepared.\n"
+                    f"  Run:\n"
+                    f"    python recipes/taigi/data/download_tat_tts.py\n"
+                    f"    python recipes/taigi/data/prepare_tat_tts.py"
+                )
+    if INCLUDE_MOE_LEKU:
+        moe_root = os.path.join(PROJECT_ROOT, "data", "moe_sutian")
+        for split in ("train", "dev"):
+            p = os.path.join(moe_root, f"metadata_moe_{split}.csv")
+            if not os.path.isfile(p):
+                raise FileNotFoundError(
+                    f"missing {p}\n"
+                    f"  TAIGI_INCLUDE_MOE_LEKU=true but MOE not prepared.\n"
+                    f"  Run:\n"
+                    f"    python recipes/taigi/data/download_moe.py\n"
+                    f"    python recipes/taigi/data/prepare_moe.py"
                 )
 
 
